@@ -1,5 +1,5 @@
 # ==============================
-# 🚀 Smart Chat with Documents (RAG + Streaming + Memory)
+# 🚀 SmartDoc AI (Pro UI + Theme + Settings)
 # ==============================
 
 import streamlit as st
@@ -9,9 +9,10 @@ from openai import OpenAI
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
+from rank_bm25 import BM25Okapi
 
 # 🔑 API KEY
-API_KEY = "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"  # apni key daalo
+API_KEY = "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"
 
 client = OpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
@@ -19,30 +20,111 @@ client = OpenAI(
 )
 
 # ------------------------------
-# 📄 File readers
+# 🎨 Page Config
 # ------------------------------
-def extract_text_from_pdf(file):
-    text = ""
-    with pdfplumber.open(file) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() or ""
-    return text
-
-def extract_text_from_docx(file):
-    doc = docx.Document(file)
-    return " ".join([p.text for p in doc.paragraphs])
-
-def extract_text_from_txt(file):
-    return file.read().decode("utf-8", errors="ignore")
+st.set_page_config(
+    page_title="SmartDoc AI",
+    page_icon="🤖",
+    layout="wide"
+)
 
 # ------------------------------
-# ✂️ Split text
+# 🌙 Theme State
 # ------------------------------
-def split_text(text, chunk_size=500):
-    return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+if "theme" not in st.session_state:
+    st.session_state.theme = True  # Default Dark
 
 # ------------------------------
-# 🧠 Embedding model
+# 📌 Sidebar
+# ------------------------------
+with st.sidebar:
+    st.title("🤖 SmartDoc AI")
+    st.markdown("AI-powered document assistant")
+    st.divider()
+
+    mode = st.selectbox(
+        "Answer Style",
+        ["Normal", "Explain Like I'm 5", "Detailed", "Bullet Points"]
+    )
+
+    st.divider()
+
+    with st.expander("⚙️ Settings"):
+        show_confidence = st.checkbox("Show Confidence", value=True)
+        show_sources = st.checkbox("Show Sources", value=True)
+        theme_mode = st.toggle("🌙 Dark Mode", value=st.session_state.theme)
+
+        st.session_state.theme = theme_mode
+
+# ------------------------------
+# 🎨 Apply Theme
+# ------------------------------
+if st.session_state.theme:
+    # DARK MODE
+    st.markdown("""
+        <style>
+        .stApp {
+            background-color: #0E1117;
+            color: #FAFAFA;
+        }
+        .stChatMessage {
+            background-color: #1E1E1E !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+else:
+    # LIGHT MODE
+    st.markdown("""
+        <style>
+        .stApp {
+            background-color: #FFFFFF;
+            color: #000000;
+        }
+        .stChatMessage {
+            background-color: #F5F5F5 !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+# ------------------------------
+# 🧾 Header
+# ------------------------------
+st.markdown("""
+# 🤖 SmartDoc AI  
+### Chat with your documents like a pro 🚀
+""")
+
+# ------------------------------
+# 📄 File Reader
+# ------------------------------
+def extract_text(file):
+    name = file.name.lower()
+
+    if name.endswith(".pdf"):
+        text = ""
+        with pdfplumber.open(file) as pdf:
+            for page in pdf.pages:
+                text += page.extract_text() or ""
+        return text
+
+    elif name.endswith(".docx"):
+        doc = docx.Document(file)
+        return " ".join([p.text for p in doc.paragraphs])
+
+    elif name.endswith(".txt"):
+        return file.read().decode("utf-8", errors="ignore")
+
+# ------------------------------
+# ✂️ Chunking
+# ------------------------------
+def split_text(text, chunk_size=500, overlap=100):
+    chunks = []
+    for i in range(0, len(text), chunk_size - overlap):
+        chunks.append(text[i:i+chunk_size])
+    return chunks
+
+# ------------------------------
+# 🧠 Embedding Model
 # ------------------------------
 @st.cache_resource
 def load_model():
@@ -51,40 +133,50 @@ def load_model():
 model = load_model()
 
 # ------------------------------
-# 🔍 Create vector store
+# 🔍 Vector Store
 # ------------------------------
 def create_vector_store(chunks):
-    embeddings = model.encode(chunks)
-    dimension = embeddings.shape[1]
+    texts = [c["text"] for c in chunks]
 
-    index = faiss.IndexFlatL2(dimension)
+    embeddings = model.encode(texts)
+    index = faiss.IndexFlatL2(embeddings.shape[1])
     index.add(np.array(embeddings))
 
-    return index, embeddings
+    tokenized = [t.split() for t in texts]
+    bm25 = BM25Okapi(tokenized)
+
+    return index, embeddings, bm25
 
 # ------------------------------
-# 🔎 Search relevant chunks
+# 🔎 Hybrid Search
 # ------------------------------
-def search_chunks(query, chunks, index, embeddings, k=3):
+def hybrid_search(query, chunks, index, embeddings, bm25, k=3):
+    texts = [c["text"] for c in chunks]
+
     query_embedding = model.encode([query])
     distances, indices = index.search(np.array(query_embedding), k)
 
-    return [chunks[i] for i in indices[0]]
+    semantic = [chunks[i] for i in indices[0]]
+
+    scores = bm25.get_scores(query.split())
+    keyword_idx = np.argsort(scores)[-k:]
+    keyword = [chunks[i] for i in keyword_idx]
+
+    combined = semantic + keyword
+
+    seen = set()
+    unique = []
+    for c in combined:
+        if c["text"] not in seen:
+            unique.append(c)
+            seen.add(c["text"])
+
+    return unique, distances
 
 # ------------------------------
-# 🤖 Streaming Answer
+# 🤖 Streaming
 # ------------------------------
-def get_answer_stream(context, question):
-
-    prompt = f"""
-    Answer based on context.
-
-    Context:
-    {context}
-
-    Question:
-    {question}
-    """
+def get_answer_stream(prompt):
 
     response = client.chat.completions.create(
         model="meta/llama-3.1-70b-instruct",
@@ -93,89 +185,111 @@ def get_answer_stream(context, question):
             {"role": "user", "content": prompt}
         ],
         temperature=0.3,
-        max_tokens=300,
+        max_tokens=400,
         stream=True
     )
 
     for chunk in response:
-        if hasattr(chunk.choices[0].delta, "content") and chunk.choices[0].delta.content:
-            yield chunk.choices[0].delta.content
+        if hasattr(chunk.choices[0].delta, "content"):
+            content = chunk.choices[0].delta.content
+            if content:
+                yield content
 
 # ------------------------------
-# 🖥️ UI
+# 🎯 Style Mapping
 # ------------------------------
-st.set_page_config(page_title="Smart Doc Chat", layout="wide")
+style_map = {
+    "Normal": "",
+    "Explain Like I'm 5": "Explain like you are talking to a 5-year-old child using simple words and examples.",
+    "Detailed": "Give a detailed explanation.",
+    "Bullet Points": "Answer in bullet points."
+}
 
-st.title("💬 Chat with Your Documents (Next-Level AI)")
+# ------------------------------
+# 📂 Upload
+# ------------------------------
+st.markdown("### 📂 Upload your documents")
 
-# Session memory
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Upload multiple files
 files = st.file_uploader(
-    "Upload PDF, DOCX, TXT",
+    "",
     type=["pdf", "docx", "txt"],
     accept_multiple_files=True
 )
 
-all_text = ""
+chunks = []
 
 if files:
     for file in files:
-        name = file.name.lower()
+        text = extract_text(file)
 
-        if name.endswith(".pdf"):
-            all_text += extract_text_from_pdf(file)
+        for chunk in split_text(text):
+            chunks.append({
+                "text": chunk,
+                "source": file.name
+            })
 
-        elif name.endswith(".docx"):
-            all_text += extract_text_from_docx(file)
+    st.success("✅ Documents processed!")
 
-        elif name.endswith(".txt"):
-            all_text += extract_text_from_txt(file)
-
-    st.success("✅ Documents loaded!")
-
-    chunks = split_text(all_text)
-
-    index, embeddings = create_vector_store(chunks)
+    index, embeddings, bm25 = create_vector_store(chunks)
 
 # ------------------------------
-# 💬 Chat UI
+# 💬 Chat
 # ------------------------------
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
-        st.write(msg["content"])
+        st.markdown(msg["content"])
 
-# Input box
-user_input = st.chat_input("Ask something about your document...")
+user_input = st.chat_input("Ask your question...")
 
 if user_input and files:
 
-    # Show user message
     st.session_state.messages.append({"role": "user", "content": user_input})
 
     with st.chat_message("user"):
-        st.write(user_input)
+        st.markdown(user_input)
 
-    # Search relevant chunks
-    relevant_chunks = search_chunks(user_input, chunks, index, embeddings)
-    context = " ".join(relevant_chunks)
+    results, distances = hybrid_search(user_input, chunks, index, embeddings, bm25)
 
-    # AI response
+    context = " ".join([r["text"] for r in results])
+
+    prompt = f"""
+    Context:
+    {context}
+
+    Instruction:
+    {style_map[mode]}
+
+    Question:
+    {user_input}
+    """
+
     with st.chat_message("assistant"):
-        response_placeholder = st.empty()
+        placeholder = st.empty()
         full_response = ""
 
-        stream = get_answer_stream(context, user_input)
+        with st.spinner("🤖 Thinking..."):
+            stream = get_answer_stream(prompt)
 
-        for chunk in stream:
-            full_response += chunk
-            response_placeholder.markdown(full_response)
+            for chunk in stream:
+                full_response += chunk
+                placeholder.markdown(full_response + "▌")
 
-    # Save response
+        placeholder.markdown(full_response)
+
     st.session_state.messages.append({"role": "assistant", "content": full_response})
 
-    # Show source
-    with st.expander("📄 Source Context"):
-        st.write(context)
+    # 🎯 Confidence
+    if show_confidence:
+        confidence = 1 / (1 + distances[0][0])
+        st.markdown(f"Confidence: {round(confidence*100,2)}%")
+
+    # 📄 Sources
+    if show_sources:
+        with st.expander("📄 View Sources"):
+            for r in results:
+                st.markdown(f"📁 {r['source']}")
+                st.write(r["text"])
+                st.write("---")
