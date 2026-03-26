@@ -12,7 +12,7 @@ import numpy as np
 from rank_bm25 import BM25Okapi
 
 # 🔑 API KEY
-API_KEY = "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"
+API_KEY = st.secrets["API_KEY"]
 
 client = OpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
