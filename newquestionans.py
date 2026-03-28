@@ -1,5 +1,5 @@
 # ==============================
-# 🚀 SmartDoc AI (Pro UI + Theme + Settings)
+# 🚀 SmartDoc + SRE AI (NO CONFIDENCE VERSION)
 # ==============================
 
 import streamlit as st
@@ -20,82 +20,62 @@ client = OpenAI(
 )
 
 # ------------------------------
-# 🎨 Page Config
+# 🎨 PAGE CONFIG
 # ------------------------------
-st.set_page_config(
-    page_title="SmartDoc AI",
-    page_icon="🤖",
-    layout="wide"
-)
+st.set_page_config(page_title="Smart AI Suite", layout="wide")
 
 # ------------------------------
-# 🌙 Theme State
+# 🌙 THEME
 # ------------------------------
 if "theme" not in st.session_state:
-    st.session_state.theme = True  # Default Dark
+    st.session_state.theme = True
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 # ------------------------------
-# 📌 Sidebar
+# 📌 SIDEBAR
 # ------------------------------
 with st.sidebar:
-    st.title("🤖 SmartDoc AI")
-    st.markdown("AI-powered document assistant")
-    st.divider()
+    st.title("🤖 Smart AI Suite")
 
     mode = st.selectbox(
         "Answer Style",
         ["Normal", "Explain Like I'm 5", "Detailed", "Bullet Points"]
     )
 
-    st.divider()
+    show_sources = st.checkbox("Show Sources", True)
 
-    with st.expander("⚙️ Settings"):
-        show_confidence = st.checkbox("Show Confidence", value=True)
-        show_sources = st.checkbox("Show Sources", value=True)
-        theme_mode = st.toggle("🌙 Dark Mode", value=st.session_state.theme)
-
-        st.session_state.theme = theme_mode
+    theme_mode = st.toggle("🌙 Dark Mode", value=st.session_state.theme)
+    st.session_state.theme = theme_mode
 
 # ------------------------------
-# 🎨 Apply Theme
+# 🎨 APPLY THEME
 # ------------------------------
 if st.session_state.theme:
-    # DARK MODE
-    st.markdown("""
+    st.markdown(
+        """
         <style>
-        .stApp {
-            background-color: #0E1117;
-            color: #FAFAFA;
-        }
-        .stChatMessage {
-            background-color: #1E1E1E !important;
+        .stApp {background:#0E1117; color:white;}
+        .stMarkdown, .stTextInput, .stTextArea, .stSelectbox, .stCheckbox, .stExpander, .stChatMessage {
+            color: white !important;
         }
         </style>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
 else:
-    # LIGHT MODE
-    st.markdown("""
+    st.markdown(
+        """
         <style>
-        .stApp {
-            background-color: #FFFFFF;
-            color: #000000;
-        }
-        .stChatMessage {
-            background-color: #F5F5F5 !important;
-        }
+        .stApp {background:white; color:black;}
         </style>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
 
 # ------------------------------
-# 🧾 Header
-# ------------------------------
-st.markdown("""
-# 🤖 SmartDoc AI  
-### Chat with your documents like a pro 🚀
-""")
-
-# ------------------------------
-# 📄 File Reader
+# 📄 FILE READER
 # ------------------------------
 def extract_text(file):
     name = file.name.lower()
@@ -115,7 +95,7 @@ def extract_text(file):
         return file.read().decode("utf-8", errors="ignore")
 
 # ------------------------------
-# ✂️ Chunking
+# ✂️ TEXT SPLIT
 # ------------------------------
 def split_text(text, chunk_size=500, overlap=100):
     chunks = []
@@ -124,7 +104,7 @@ def split_text(text, chunk_size=500, overlap=100):
     return chunks
 
 # ------------------------------
-# 🧠 Embedding Model
+# 🧠 MODEL
 # ------------------------------
 @st.cache_resource
 def load_model():
@@ -133,7 +113,7 @@ def load_model():
 model = load_model()
 
 # ------------------------------
-# 🔍 Vector Store
+# 🔍 VECTOR STORE
 # ------------------------------
 def create_vector_store(chunks):
     texts = [c["text"] for c in chunks]
@@ -148,10 +128,11 @@ def create_vector_store(chunks):
     return index, embeddings, bm25
 
 # ------------------------------
-# 🔎 Hybrid Search
+# 🔎 HYBRID SEARCH
 # ------------------------------
 def hybrid_search(query, chunks, index, embeddings, bm25, k=3):
-    texts = [c["text"] for c in chunks]
+    if "name" in query.lower() or "resume" in query.lower():
+        k = 5
 
     query_embedding = model.encode([query])
     distances, indices = index.search(np.array(query_embedding), k)
@@ -174,16 +155,12 @@ def hybrid_search(query, chunks, index, embeddings, bm25, k=3):
     return unique, distances
 
 # ------------------------------
-# 🤖 Streaming
+# 🤖 STREAMING
 # ------------------------------
-def get_answer_stream(prompt):
-
+def stream_answer(prompt):
     response = client.chat.completions.create(
         model="meta/llama-3.1-70b-instruct",
-        messages=[
-            {"role": "system", "content": "You are a helpful AI assistant."},
-            {"role": "user", "content": prompt}
-        ],
+        messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         max_tokens=400,
         stream=True
@@ -196,100 +173,133 @@ def get_answer_stream(prompt):
                 yield content
 
 # ------------------------------
-# 🎯 Style Mapping
+# 🤖 SIMPLE AI
+# ------------------------------
+def ask_ai(prompt):
+    response = client.chat.completions.create(
+        model="meta/llama-3.1-70b-instruct",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3,
+        max_tokens=400
+    )
+    return response.choices[0].message.content
+
+# ------------------------------
+# 🎯 STYLE
 # ------------------------------
 style_map = {
     "Normal": "",
-    "Explain Like I'm 5": "Explain like you are talking to a 5-year-old child using simple words and examples.",
-    "Detailed": "Give a detailed explanation.",
+    "Explain Like I'm 5": "Explain like a 5-year-old.",
+    "Detailed": "Give detailed explanation.",
     "Bullet Points": "Answer in bullet points."
 }
 
 # ------------------------------
-# 📂 Upload
+# 📂 TABS
 # ------------------------------
-st.markdown("### 📂 Upload your documents")
-
-files = st.file_uploader(
-    "",
-    type=["pdf", "docx", "txt"],
-    accept_multiple_files=True
-)
-
-chunks = []
-
-if files:
-    for file in files:
-        text = extract_text(file)
-
-        for chunk in split_text(text):
-            chunks.append({
-                "text": chunk,
-                "source": file.name
-            })
-
-    st.success("✅ Documents processed!")
-
-    index, embeddings, bm25 = create_vector_store(chunks)
+tabs = st.tabs([
+    "📄 Document Chat",
+    "🔍 Log Analyzer",
+    "📊 Health Check",
+    "📚 Runbook",
+    "🚨 Alert"
+])
 
 # ------------------------------
-# 💬 Chat
+# 📄 DOCUMENT CHAT
 # ------------------------------
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+with tabs[0]:
+    files = st.file_uploader("Upload Documents", accept_multiple_files=True)
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+    # Show history
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-user_input = st.chat_input("Ask your question...")
+    if files:
+        chunks = []
 
-if user_input and files:
+        for file in files:
+            text = extract_text(file)
 
-    st.session_state.messages.append({"role": "user", "content": user_input})
+            for chunk in split_text(text):
+                chunks.append({
+                    "text": chunk,
+                    "source": file.name
+                })
 
-    with st.chat_message("user"):
-        st.markdown(user_input)
+        st.success("Documents processed ✅")
 
-    results, distances = hybrid_search(user_input, chunks, index, embeddings, bm25)
+        index, embeddings, bm25 = create_vector_store(chunks)
 
-    context = " ".join([r["text"] for r in results])
+        query = st.chat_input("Ask your question...")
 
-    prompt = f"""
-    Context:
-    {context}
+        if query:
+            st.session_state.messages.append({"role": "user", "content": query})
 
-    Instruction:
-    {style_map[mode]}
+            with st.chat_message("user"):
+                st.markdown(query)
 
-    Question:
-    {user_input}
-    """
+            results, distances = hybrid_search(query, chunks, index, embeddings, bm25)
 
-    with st.chat_message("assistant"):
-        placeholder = st.empty()
-        full_response = ""
+            context = " ".join([r["text"] for r in results])
 
-        with st.spinner("🤖 Thinking..."):
-            stream = get_answer_stream(prompt)
+            if "name" in query.lower() or "resume" in query.lower():
+                prompt = f"Find the NAME of the person from the context.\nContext: {context}\nQuestion: {query}"
+            else:
+                prompt = f"{style_map[mode]}\nContext: {context}\nQuestion: {query}"
 
-            for chunk in stream:
-                full_response += chunk
-                placeholder.markdown(full_response + "▌")
+            with st.chat_message("assistant"):
+                placeholder = st.empty()
+                full = ""
 
-        placeholder.markdown(full_response)
+                for chunk in stream_answer(prompt):
+                    full += chunk
+                    placeholder.markdown(full + "▌")
 
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+                placeholder.markdown(full)
 
-    # 🎯 Confidence
-    if show_confidence:
-        confidence = 1 / (1 + distances[0][0])
-        st.markdown(f"Confidence: {round(confidence*100,2)}%")
+            st.session_state.messages.append({"role": "assistant", "content": full})
 
-    # 📄 Sources
-    if show_sources:
-        with st.expander("📄 View Sources"):
-            for r in results:
-                st.markdown(f"📁 {r['source']}")
-                st.write(r["text"])
-                st.write("---")
+            if show_sources:
+                with st.expander("📄 Sources"):
+                    for r in results:
+                        st.write(f"📁 {r['source']}")
+                        st.write(r["text"])
+                        st.write("---")
+
+# ------------------------------
+# 🔍 LOG ANALYZER
+# ------------------------------
+with tabs[1]:
+    logs = st.text_area("Paste Logs")
+
+    if st.button("Analyze Logs"):
+        st.write(ask_ai(f"Analyze logs:\n{logs}"))
+
+# ------------------------------
+# 📊 HEALTH CHECK
+# ------------------------------
+with tabs[2]:
+    metrics = st.text_area("Enter Metrics")
+
+    if st.button("Check Health"):
+        st.write(ask_ai(f"Analyze system metrics:\n{metrics}"))
+
+# ------------------------------
+# 📚 RUNBOOK
+# ------------------------------
+with tabs[3]:
+    issue = st.text_input("Enter Issue")
+
+    if st.button("Generate Runbook"):
+        st.write(ask_ai(f"Create runbook for:\n{issue}"))
+
+# ------------------------------
+# 🚨 ALERT
+# ------------------------------
+with tabs[4]:
+    alert = st.text_area("Paste Alert")
+
+    if st.button("Explain Alert"):
+        st.write(ask_ai(f"Explain alert:\n{alert}"))
